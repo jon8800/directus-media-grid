@@ -1,6 +1,7 @@
 <template>
 	<v-notice v-if="!relationInfo" type="warning">{{ t('relationship_not_setup') }}</v-notice>
 	<div v-else class="many-to-many" ref="galleryEl">
+		
 		<template v-if="loading" class="gallery-list">
 			<div class="v-list-inner">
 				<v-skeleton-gallery-loader v-for="n in clamp(totalItemCount - (page - 1) * limit, 1, limit)" :key="n" />
@@ -10,65 +11,65 @@
 		<v-notice v-else-if="displayItems.length === 0">{{ t('no_items') }}</v-notice>
 
 		<v-list v-else class="gallery-list">
-			<draggable :force-fallback="true" :model-value="displayItems" item-key="id" handle=".drag-handle"
-				:disabled="!allowDrag" @update:model-value="sortItems($event)" class="v-list-inner" :animation="200">
-				<template #item="{ element }">
-					<v-list-item :class="{ deleted: element.$type === 'deleted' }" block clickable
-						:style="{ 'grid-column': `span ${element?.column_width || 1}` }">
-						<div class="gallery-item-resizer"
-							@pointerdown.self="(e) => onResizeHandlePointerDown(e, element)"></div>
+			<grid-layout v-model:layout="layout" :col-num="12" :row-height="75" :is-draggable="allowDrag"
+				:is-bounded="true" :is-resizable="true" :use-css-transforms="true" :horizontal-shift="true"
+				@update:layout="updateGrid">
+				<template #default="{ gridItemProps }">
+					<grid-item v-for="element, i in displayItems" :key="i" v-bind="gridItemProps" :x="layout[i].x"
+						:y="layout[i].y" :w="layout[i].w" :h="layout[i].h" :i="layout[i].i">
+						<v-list-item :class="{ deleted: element.$type === 'deleted' }" block clickable>
+							<div class="v-list-item-wrapper" @click="editItem(element)">
+								<div class="v-list-item-header">
+									<v-icon v-if="allowDrag" name="drag_handle" class="drag-handle" left
+										@click.stop="() => { }" />
 
-						<div class="v-list-item-wrapper" @click="editItem(element)">
-							<div class="v-list-item-header">
-								<v-icon v-if="allowDrag" name="drag_handle" class="drag-handle" left
-									@click.stop="() => { }" />
+									<div class="v-list-item-header-actions">
+										<v-icon v-if="!disabled" :name="getDeselectIcon(element)" class="deselect"
+											@click.stop="deleteItem(element)" />
+										<v-menu show-arrow placement="bottom-end">
+											<template #activator="{ toggle }">
+												<v-icon name="more_vert" clickable @click.stop="toggle" />
+											</template>
 
-								<div class="v-list-item-header-actions">
-									<v-icon v-if="!disabled" :name="getDeselectIcon(element)" class="deselect"
-										@click.stop="deleteItem(element)" />
-									<v-menu show-arrow placement="bottom-end">
-										<template #activator="{ toggle }">
-											<v-icon name="more_vert" clickable @click.stop="toggle" />
-										</template>
-
-										<v-list>
-											<v-list-item clickable :href="getUrl(element)">
-												<v-list-item-icon>
-													<v-icon name="launch" />
-												</v-list-item-icon>
-												<v-list-item-content>{{ t('open_file_in_tab') }}</v-list-item-content>
-											</v-list-item>
-											<v-list-item clickable :href="getUrl(element, true)">
-												<v-list-item-icon>
-													<v-icon name="download" />
-												</v-list-item-icon>
-												<v-list-item-content>{{ t('download_file') }}</v-list-item-content>
-											</v-list-item>
-										</v-list>
-									</v-menu>
+											<v-list>
+												<v-list-item clickable :href="getUrl(element)">
+													<v-list-item-icon>
+														<v-icon name="launch" />
+													</v-list-item-icon>
+													<v-list-item-content>{{ t('open_file_in_tab') }}
+													</v-list-item-content>
+												</v-list-item>
+												<v-list-item clickable :href="getUrl(element, true)">
+													<v-list-item-icon>
+														<v-icon name="download" />
+													</v-list-item-icon>
+													<v-list-item-content>{{ t('download_file') }}</v-list-item-content>
+												</v-list-item>
+											</v-list>
+										</v-menu>
+									</div>
 								</div>
+								<a class="image-preview"
+									:class="{ 'is-svg': element.type && element.type.includes('svg') }">
+									<v-image :src="getUrl(element)" :width="element.width" :height="element.height"
+										alt="" role="presentation" />
+									<div class="shadow" />
+								</a>
+								<render-template :collection="relationInfo.junctionCollection.collection"
+									:item="element" :template="templateWithDefaults" />
 							</div>
-							<div class="image-preview"
-								:class="{ 'is-svg': element.type && element.type.includes('svg') }">
-								<v-image :src="getUrl(element)" :width="element.width" :height="element.height" alt=""
-									role="presentation" />
-								<div class="shadow" />
-							</div>
-							<render-template :collection="relationInfo.junctionCollection.collection" :item="element"
-								:template="templateWithDefaults" />
-						</div>
-					</v-list-item>
+						</v-list-item>
+					</grid-item>
 				</template>
-			</draggable>
-			<div class="gallery-guides">
+			</grid-layout>
+			<!-- <div class="gallery-guides">
 				<div class="gallery-guide-item" v-for="n in 24" :key="n" />
-			</div>
+			</div> -->
 		</v-list>
 
+		<v-upload multiple from-url :folder="folder" @input="onUpload" />
+
 		<div class="actions">
-			<v-button v-if="enableCreate && createAllowed" :disabled="disabled" @click="showUpload = true">
-				{{ t('upload_file') }}
-			</v-button>
 			<v-button v-if="enableSelect && selectAllowed" :disabled="disabled" @click="selectModalActive = true">
 				{{ t('add_existing') }}
 			</v-button>
@@ -110,13 +111,14 @@
 <script setup lang="ts">
 import { useRelationM2M } from './app/composables/use-relation-m2m';
 import { useRelationMultiple, RelationQueryMultiple, DisplayItem } from './app/composables/use-relation-multiple';
-import { computed, ref, toRefs } from 'vue';
+import { computed, ref, toRefs, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import DrawerItem from './app/views/drawer-item.vue';
 import DrawerCollection from './app/views/drawer-collection.vue';
-import Draggable from 'vuedraggable';
+import { GridLayout, GridItem } from 'vue3-drr-grid-layout'
+import 'vue3-drr-grid-layout/dist/style.css'
 import { adjustFieldsForDisplays } from './app/utils/adjust-fields-for-displays';
-import { get, clamp } from 'lodash';
+import { get, clamp, debounce } from 'lodash';
 import { useStores } from '@directus/extensions-sdk';
 import { addTokenToURL } from './app/utils/add-token-to-url';
 import { getRootPath } from './app/utils/get-root-path';
@@ -124,6 +126,7 @@ import { getFieldsFromTemplate } from '@directus/shared/utils';
 import { useEventListener } from './app/composables/use-event-listener';
 import { Filter } from '@directus/shared/types';
 import VSkeletonGalleryLoader from './app/components/v-skeleton-gallery-loader.vue';
+import { func } from 'joi';
 
 const props = withDefaults(
 	defineProps<{
@@ -197,13 +200,14 @@ const fields = computed(() =>
 const page = ref(1);
 
 const query = computed<RelationQueryMultiple>(() => ({
-	fields: [...fields.value, 'directus_files_id.width', 'directus_files_id.height', 'column_width'],
+	fields: [...fields.value, 'layout'],
 	limit: limit.value,
 	page: page.value,
 }));
 
 const { create, update, remove, select, displayItems, totalItemCount, loading, selected, isItemSelected, localDelete } =
 	useRelationMultiple(value, query, relationInfo, primaryKey);
+
 
 const pageCount = computed(() => Math.ceil(totalItemCount.value / limit.value));
 
@@ -217,86 +221,49 @@ function getDeselectIcon(item: DisplayItem) {
 	return 'close';
 }
 
-function sortItems(items: DisplayItem[]) {
-	const sortField = relationInfo.value?.sortField;
-	if (!sortField) return;
+type GridLayout = {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	i: number;
+	moved?: boolean;
+};
+let layout: Array<GridLayout> = [];
 
-	const sortedItems = items.map((item, index) => ({
-		...item,
-		[sortField]: index,
-	}));
-	update(...sortedItems);
-}
+watch([displayItems, totalItemCount], () => {
+	if (displayItems.value.length) {
+		console.log(displayItems.value, totalItemCount.value);
+		layout = displayItems.value.map((item, index) => {
+			const x = index * 2 % 12;
+			const y = Math.floor(index / 12);
+			// const y = (item.$type == "created" && displayItems.value.length > 1) ? displayItems.value.length + 12 : Math.floor(index / 12);
+			const layoutItemTemplate = {
+				x: x,
+				y: y,
+				w: 2,
+				h: 2,
+				i: index,
+			};
 
-const galleryEl = ref<HTMLElement>();
-const galleryItemEl = ref<HTMLElement>();
-
-const { onResizeHandlePointerDown, onPointerMove, onPointerUp } = useModuleNavResize();
-useEventListener(window, 'pointermove', onPointerMove);
-useEventListener(window, 'pointerup', onPointerUp);
-
-
-function useModuleNavResize() {
-	const dragging = ref<boolean>(false);
-	const dragStartX = ref<number>(0);
-	const dragStartWidth = ref<number>(0);
-	const currentWidth = ref<number | null>(null);
-	const rafId = ref<number | null>(null);
-	const columnWidth = ref<number | null>(null);
-	const currentIndex = ref<number | null>(null);
-
-	return { onResizeHandlePointerDown, onPointerMove, onPointerUp };
-
-	function onResizeHandlePointerDown(event: PointerEvent, item: DisplayItem) {
-		currentIndex.value = item?.files_sort;
-		galleryItemEl.value = (event.target as Node).parentElement
-		dragging.value = true;
-		dragStartX.value = event.pageX;
-		dragStartWidth.value = galleryItemEl.value!.offsetWidth;
-		galleryItemEl.value.classList.add('resizing');
-		galleryEl.value.classList.add('resizing');
-	}
-
-	function onPointerMove(event: PointerEvent) {
-		if (!dragging.value) return;
-
-		rafId.value = window.requestAnimationFrame(() => {
-			columnWidth.value = Math.ceil(6 / (galleryEl.value.offsetWidth / currentWidth.value));
-			// Cap the column width to the 6 column grid
-			if (columnWidth.value > 6) {
-				columnWidth.value = 6;
-			}
-			currentWidth.value = dragStartWidth.value + (event.pageX - dragStartX.value);
-			// Cap the width to the container width
-			if (currentWidth.value > galleryEl.value.offsetWidth) {
-				currentWidth.value = galleryEl.value.offsetWidth;
-			}
-			galleryItemEl.value!.style.width = `${currentWidth.value}px`;
+			const layoutData: GridLayout = item.layout || layoutItemTemplate;
+			return layoutData;
 		});
+		console.log({ layout });
 	}
+});
 
-	function onPointerUp() {
-		if (dragging.value !== true) return;
-		dragging.value = false;
-		if (rafId.value) {
-			window.cancelAnimationFrame(rafId.value);
-		}
-		galleryItemEl.value!.style.width = "auto";
-		galleryItemEl.value!.classList.remove('resizing');
-		galleryEl.value!.classList.remove('resizing');
-		displayItems.value[currentIndex.value].column_width = columnWidth.value;
-		// Save to DB
-		saveGalleryItemWidth(displayItems.value);
-	}
-
-	function saveGalleryItemWidth(items: DisplayItem[]) {
-		const updatedItems = items.map(item => ({
-			...item,
-			['column_width']: item?.column_width || 0,
-		}));
-		update(...updatedItems);
-	}
+function updateLayout(data: Array<GridLayout>) {
+	const updatedItems = displayItems.value.map((item, index) => ({
+		...item,
+		['layout']: data[index],
+	}));
+	update(...updatedItems);
 }
+
+const updateGrid = debounce((data) => {
+	// updateLayout(data);
+}, 1000);
 
 const selectedPrimaryKeys = computed(() => {
 	if (!relationInfo.value) return [];
@@ -455,78 +422,63 @@ const selectAllowed = computed(() => {
 .v-list.gallery-list {
 	position: relative;
 	--v-list-padding: 0;
-	margin-bottom: 20px;
+	margin: 0 -10px 20px;
 	overflow: hidden;
 
-	.v-list-inner {
-		z-index: 10;
-		position: relative;
-		display: grid;
-		grid-template-columns: repeat(6, 1fr);
-		grid-auto-rows: 150px;
-		gap: 20px;
+	::v-deep(.vue-grid-item) {
+		border-radius: 6px;
+		background: var(--background-normal-alt);
 
-		.v-list-item {
-			grid-column: span 2 / span 2;
-			--input-height: auto;
-			padding: 10px;
-			overflow: visible;
-
-			&:hover {
-				.gallery-item-resizer {
-					opacity: 1;
-					visibility: visible;
-				}
+		&:hover {
+			.shadow:before {
+				opacity: 1;
+				visibility: visible;
 			}
+		}
 
-			&.deleted {
-				--v-list-item-border-color: var(--danger-25);
-				--v-list-item-border-color-hover: var(--danger-50);
-				--v-list-item-background-color: var(--danger-10);
-				--v-list-item-background-color-hover: var(--danger-25);
+		>.vue-resizable-handle {
+			position: absolute;
+			bottom: 0;
+			z-index: 10;
+			margin: 6px;
+			background-image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0IDQiPjxwYXRoIGQ9Ik0zLjg1LjE1YS40OS40OSwwLDAsMSwwLC43aDBsLTMsM2EuNDguNDgsMCwwLDEtLjcsMCwuNDguNDgsMCwwLDEsMC0uN2wzLTNhLjQ4LjQ4LDAsMCwxLC43LDBabTAsMi41YS40OS40OSwwLDAsMSwwLC43aDBsLS41LjVhLjQ5LjQ5LDAsMCwxLS43LS43bC41LS41YS40OC40OCwwLDAsMSwuNywwWiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==);
+			background-repeat: no-repeat;
+			background-position: center;
+			opacity: 0;
+			visibility: hidden;
+			transition: all .3s ease;
+		}
 
-				::v-deep(.v-icon) {
-					color: var(--danger-75);
-				}
-			}
-
-			&.block+.v-list-item.block {
-				margin-top: 0;
-			}
-
-			.v-icon {
-				--v-icon-color: white;
+		&:hover {
+			>.vue-resizable-handle {
+				opacity: 1;
+				visibility: visible;
 			}
 		}
 	}
 
-	.gallery-item-resizer {
-		position: absolute;
-		top: 0;
-		right: 0;
-		height: 50px;
-		bottom: 0;
-		width: 8px;
-		background: var(--primary);
-		border-radius: 50px;
-		margin: auto -4px auto 0;
-		cursor: e-resize;
-		z-index: 100;
-		opacity: 0;
-		visibility: hidden;
+	.v-list-item {
+		--input-height: 100%;
+		padding: 10px;
+		overflow: visible;
 
-		&:before {
-			position: absolute;
-			top: 0;
-			left: 0;
-			right: 0;
-			bottom: 0;
-			background: var(--white);
-			width: 2px;
-			content: '';
-			margin: auto;
-			height: 30%;
-			opacity: .5;
+		&.deleted {
+			--v-list-item-border-color: var(--danger-25);
+			--v-list-item-border-color-hover: var(--danger-50);
+			--v-list-item-background-color: var(--danger-10);
+			--v-list-item-background-color-hover: var(--danger-25);
+
+			::v-deep(.v-icon) {
+				color: var(--danger-75);
+			}
+		}
+
+		&.block+.v-list-item.block {
+			margin-top: 0;
+		}
+
+		.v-icon {
+			--v-icon-color: white;
 		}
 	}
 
@@ -646,6 +598,20 @@ const selectAllowed = computed(() => {
 		white-space: nowrap;
 		text-overflow: ellipsis;
 		background: linear-gradient(180deg, rgb(13 17 23) 0%, rgba(38, 50, 56, 0) 50%);
+
+		&:before {
+			content: '';
+			position: absolute;
+			top: 0;
+			right: 0;
+			left: 0;
+			bottom: 0;
+			background: linear-gradient(330deg, rgba(0, 0, 0, 0.6) 0%, transparent 50%);
+			opacity: 0;
+			visibility: hidden;
+			pointer-events: none;
+			transition: all .3s ease;
+		}
 	}
 
 	&.is-svg {

@@ -4,7 +4,7 @@ import PreviewSVG from './preview.svg';
 export default {
 	id: 'gallery',
 	name: 'Gallery',
-	description: 'Selectiom of multiple images',
+	description: 'Selection of multiple images',
 	icon: 'insert_photo',
 	component: InterfaceGallery,
 	types: ['alias'],
