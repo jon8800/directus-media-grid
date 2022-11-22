@@ -4,7 +4,8 @@
 			<v-skeleton-loader v-if="loading || templateDataLoading" class="title-loader" type="text" />
 
 			<h1 v-else class="type-title">
-				<render-template :collection="templateCollection?.collection" :item="templateData" :template="template" />
+				<render-template :collection="templateCollection?.collection" :item="templateData"
+					:template="template" />
 			</h1>
 		</template>
 
@@ -20,52 +21,45 @@
 		</template>
 
 		<div class="drawer-item-content">
-			<file-preview
-				v-if="junctionField && file"
-				:src="file.src"
-				:mime="file.type"
-				:width="file.width"
-				:height="file.height"
-				:title="file.title"
-				:in-modal="true"
-			/>
-			<div class="drawer-item-order" :class="{ swap: swapFormOrder }">
-				<v-form
-					v-if="junctionField"
-					:disabled="disabled"
-					:loading="loading"
-					:initial-values="initialValues?.[junctionField]"
-					:primary-key="relatedPrimaryKey"
-					:model-value="internalEdits?.[junctionField]"
-					:fields="relatedCollectionFields"
-					:validation-errors="junctionField ? validationErrors : undefined"
-					:autofocus="!swapFormOrder"
-					:show-divider="!swapFormOrder"
-					@update:model-value="setRelationEdits"
-				/>
-				<v-form
-					v-model="internalEdits"
-					:disabled="disabled"
-					:loading="loading"
-					:initial-values="initialValues"
-					:autofocus="swapFormOrder"
-					:show-divider="swapFormOrder"
-					:primary-key="primaryKey"
-					:fields="fields"
-					:validation-errors="!junctionField ? validationErrors : undefined"
-				/>
+			<file-preview v-if="junctionField && file" :src="file.src" :mime="file.type" :width="file.width"
+				:height="file.height" :title="file.title" :in-modal="true" />
+			<v-info v-if="emptyForm" :title="t('no_visible_fields')" icon="search" center>
+				{{ t('no_visible_fields_copy') }}
+			</v-info>
+			<div v-else class="drawer-item-order" :class="{ swap: swapFormOrder }">
+				<v-form v-if="junctionField" :disabled="disabled" :loading="loading" :nested="true"
+					:initial-values="initialValues?.[junctionField]" :primary-key="relatedPrimaryKey"
+					:model-value="internalEdits?.[junctionField]" :fields="relatedCollectionFields"
+					:validation-errors="junctionField ? validationErrors : undefined" :autofocus="!swapFormOrder"
+					:show-divider="!swapFormOrder" @update:model-value="setRelationEdits" />
+
+				<v-form v-model="internalEdits" :disabled="disabled" :loading="loading" :nested="true"
+					:initial-values="initialValues" :autofocus="swapFormOrder" :show-divider="swapFormOrder"
+					:primary-key="primaryKey" :fields="fields"
+					:validation-errors="!junctionField ? validationErrors : undefined" />
 			</div>
 		</div>
 	</v-drawer>
+	<v-dialog v-model="confirmLeave" @esc="confirmLeave = false">
+		<v-card>
+			<v-card-title>{{ t('unsaved_changes') }}</v-card-title>
+			<v-card-text>{{ t('unsaved_changes_copy') }}</v-card-text>
+			<v-card-actions>
+				<v-button secondary @click="discardAndLeave">
+					{{ t('discard_changes') }}
+				</v-button>
+				<v-button @click="confirmLeave = false">{{ t('keep_editing') }}</v-button>
+			</v-card-actions>
+		</v-card>
+	</v-dialog>
 </template>
 
 <script setup lang="ts">
 import { useApi, useStores } from '@directus/extensions-sdk';
 import FilePreview from './file-preview.vue';
-import { merge, set } from 'lodash';
+import { isEmpty, merge, set } from 'lodash';
 import { computed, ref, toRefs, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-
 import { usePermissions } from '../composables/use-permissions';
 import { useTemplateData } from '../composables/use-template-data';
 import { unexpectedError } from '../utils/unexpected-error';
@@ -73,6 +67,8 @@ import { validateItem } from '../utils/validate-item';
 import { useCollection } from '@directus/shared/composables';
 import { Field, Relation } from '@directus/shared/types';
 import { getDefaultValuesFromFields } from '../utils/get-default-values-from-fields';
+import { useEditsGuard } from '../composables/use-edits-guard';
+import { useRouter } from 'vue-router';
 
 interface Props {
 	collection: string;
@@ -130,17 +126,28 @@ const swapFormOrder = computed(() => {
 	return props.junctionFieldLocation === 'top';
 });
 
+const hasEdits = computed(() => !isEmpty(internalEdits.value));
+const { confirmLeave, leaveTo } = useEditsGuard(hasEdits);
+const router = useRouter();
+
+function discardAndLeave() {
+	if (!leaveTo.value) return;
+	internalEdits.value = {};
+	confirmLeave.value = false;
+	router.push(leaveTo.value);
+}
+
 const title = computed(() => {
 	const collection = relatedCollectionInfo?.value || collectionInfo.value!;
 
 	if (te(`collection_names_singular.${collection.collection}`)) {
 		return isNew.value
 			? t('creating_unit', {
-					unit: t(`collection_names_singular.${collection.collection}`),
-			  })
+				unit: t(`collection_names_singular.${collection.collection}`),
+			})
 			: t('editing_unit', {
-					unit: t(`collection_names_singular.${collection.collection}`),
-			  });
+				unit: t(`collection_names_singular.${collection.collection}`),
+			});
 	}
 
 	return isNew.value
@@ -181,6 +188,12 @@ const fieldsWithoutCircular = computed(() => {
 	} else {
 		return fields.value;
 	}
+});
+
+const emptyForm = computed(() => {
+	const visibleFieldsRelated = relatedCollectionFields.value.filter((field: Field) => !field.meta?.hidden);
+	const visibleFieldsJunction = fields.value.filter((field: Field) => !field.meta?.hidden);
+	return visibleFieldsRelated.length + visibleFieldsJunction.length === 0;
 });
 
 const templatePrimaryKey = computed(() =>
@@ -395,6 +408,7 @@ function useActions() {
 .drawer-item-content {
 	padding: var(--content-padding);
 	padding-bottom: var(--content-padding-bottom);
+
 	.drawer-item-order {
 		&.swap {
 			display: flex;

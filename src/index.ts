@@ -1,16 +1,17 @@
-import InterfaceGallery from "./gallery.vue";
+import { defineInterface } from '@directus/shared/utils';
+import InterfaceGallery from './gallery.vue';
 import PreviewSVG from './preview.svg';
 
-export default {
+export default defineInterface({
 	id: 'gallery',
 	name: 'Gallery',
 	description: 'Selection of multiple images',
 	icon: 'insert_photo',
 	component: InterfaceGallery,
+	relational: true,
 	types: ['alias'],
 	localTypes: ['files'],
 	group: 'relational',
-	relational: true,
 	options: ({ relations }) => {
 		return [
 			{
@@ -80,4 +81,4 @@ export default {
 	},
 	recommendedDisplays: ['related-values'],
 	preview: PreviewSVG,
-};
+});
