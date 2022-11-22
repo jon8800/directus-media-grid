@@ -1,7 +1,6 @@
 <template>
 	<v-notice v-if="!relationInfo" type="warning">{{ t('relationship_not_setup') }}</v-notice>
-	<div v-else class="many-to-many" ref="galleryEl">
-		
+	<div v-else class="many-to-many">
 		<template v-if="loading" class="gallery-list">
 			<div class="v-list-inner">
 				<v-skeleton-gallery-loader v-for="n in clamp(totalItemCount - (page - 1) * limit, 1, limit)" :key="n" />
@@ -11,12 +10,29 @@
 		<v-notice v-else-if="displayItems.length === 0">{{ t('no_items') }}</v-notice>
 
 		<v-list v-else class="gallery-list">
-			<grid-layout v-model:layout="layout" :col-num="12" :row-height="75" :is-draggable="allowDrag"
-				:is-bounded="true" :is-resizable="true" :use-css-transforms="true" :horizontal-shift="true"
-				@update:layout="updateGrid">
+			<grid-layout
+				v-model:layout="layout"
+				:col-num="12" 
+				:row-height="75" 
+				:is-draggable="allowDrag"
+				:is-bounded="true" 
+				:is-resizable="true" 
+				:use-css-transforms="true" 
+				:horizontal-shift="true"
+				:use-observer="true"
+				@update:layout="updateGrid"
+			>
 				<template #default="{ gridItemProps }">
-					<grid-item v-for="element, i in displayItems" :key="i" v-bind="gridItemProps" :x="layout[i].x"
-						:y="layout[i].y" :w="layout[i].w" :h="layout[i].h" :i="layout[i].i">
+					<grid-item 
+						v-for="element, i in displayItems" 
+						:key="i" 
+						v-bind="gridItemProps" 
+						:x="layout[i].x"
+						:y="layout[i].y" 
+						:w="layout[i].w" 
+						:h="layout[i].h" 
+						:i="layout[i].i"
+					>
 						<v-list-item :class="{ deleted: element.$type === 'deleted' }" block clickable>
 							<div class="v-list-item-wrapper" @click="editItem(element)">
 								<div class="v-list-item-header">
@@ -24,47 +40,57 @@
 										@click.stop="() => { }" />
 
 									<div class="v-list-item-header-actions">
-										<v-icon v-if="!disabled" :name="getDeselectIcon(element)" class="deselect"
-											@click.stop="deleteItem(element)" />
+										<v-icon 
+											v-if="!disabled" 
+											:name="getDeselectIcon(element)" 
+											class="deselect"
+											@click.stop="deleteItem(element)" 
+										/>
 										<v-menu show-arrow placement="bottom-end">
 											<template #activator="{ toggle }">
 												<v-icon name="more_vert" clickable @click.stop="toggle" />
 											</template>
 
 											<v-list>
-												<v-list-item clickable :href="getUrl(element)">
-													<v-list-item-icon>
-														<v-icon name="launch" />
-													</v-list-item-icon>
-													<v-list-item-content>{{ t('open_file_in_tab') }}
-													</v-list-item-content>
+												<v-list-item clickable :href="getAssetUrl(getFilename(element))">
+													<v-list-item-icon><v-icon name="launch" /></v-list-item-icon>
+													<v-list-item-content>{{ t('open_file_in_tab') }}</v-list-item-content>
 												</v-list-item>
-												<v-list-item clickable :href="getUrl(element, true)">
-													<v-list-item-icon>
-														<v-icon name="download" />
-													</v-list-item-icon>
+												<v-list-item
+													clickable
+													:download="element.directus_files_id.filename_download"
+													:href="getAssetUrl(getFilename(element), true)"
+												>
+													<v-list-item-icon><v-icon name="download" /></v-list-item-icon>
 													<v-list-item-content>{{ t('download_file') }}</v-list-item-content>
 												</v-list-item>
 											</v-list>
 										</v-menu>
 									</div>
 								</div>
-								<a class="image-preview"
-									:class="{ 'is-svg': element.type && element.type.includes('svg') }">
-									<v-image :src="getUrl(element)" :width="element.width" :height="element.height"
-										alt="" role="presentation" />
+								<a class="image-preview" :class="{ 'is-svg': element.type && element.type.includes('svg') }">
+									<v-image
+										:src="getUrl(element)" 
+										:width="element.width" 
+										:height="element.height"
+										alt="" 
+										role="presentation"
+									/>
 									<div class="shadow" />
 								</a>
-								<render-template :collection="relationInfo.junctionCollection.collection"
-									:item="element" :template="templateWithDefaults" />
+								<render-template
+									:collection="relationInfo.junctionCollection.collection"
+									:item="element"
+									:template="templateWithDefaults"
+								/>
 							</div>
 						</v-list-item>
 					</grid-item>
 				</template>
 			</grid-layout>
-			<!-- <div class="gallery-guides">
+			<div class="gallery-guides">
 				<div class="gallery-guide-item" v-for="n in 24" :key="n" />
-			</div> -->
+			</div>
 		</v-list>
 
 		<v-upload multiple from-url :folder="folder" @input="onUpload" />
@@ -76,23 +102,40 @@
 			<v-pagination v-if="pageCount > 1" v-model="page" :length="pageCount" :total-visible="5" />
 		</div>
 
-		<drawer-item :disabled="disabled" :active="editModalActive"
-			:collection="relationInfo.junctionCollection.collection" :primary-key="currentlyEditing || '+'"
-			:related-primary-key="relatedPrimaryKey || '+'" :junction-field="relationInfo.junctionField.field"
-			:edits="editsAtStart" :circular-field="relationInfo.reverseJunctionField.field" @input="update"
-			@update:active="cancelEdit">
+		<drawer-item
+			v-model:active="editModalActive"
+			:disabled="disabled"
+			:collection="relationInfo.junctionCollection.collection"
+			:primary-key="currentlyEditing || '+'"
+			:related-primary-key="relatedPrimaryKey || '+'"
+			:junction-field="relationInfo.junctionField.field"
+			:edits="editsAtStart"
+			:circular-field="relationInfo.reverseJunctionField.field"
+			@input="stageEdits"
+		>
 			<template #actions>
 				<v-button
 					v-if="currentlyEditing !== '+' && relationInfo.relatedCollection.collection === 'directus_files'"
-					secondary rounded icon download :href="downloadUrl">
+					secondary
+					rounded
+					icon
+					:download="downloadName"
+					:href="downloadUrl"
+				>
 					<v-icon name="download" />
 				</v-button>
 			</template>
 		</drawer-item>
 
-		<drawer-collection v-if="!disabled" v-model:active="selectModalActive"
-			:collection="relationInfo.relatedCollection.collection" :selection="selectedPrimaryKeys"
-			:filter="customFilter" multiple @input="select" />
+		<drawer-collection
+			v-if="!disabled"
+			v-model:active="selectModalActive"
+			:collection="relationInfo.relatedCollection.collection"
+			:selection="selectedPrimaryKeys"
+			:filter="customFilter"
+			multiple
+			@input="onSelect"
+		/>
 
 		<v-dialog v-if="!disabled" v-model="showUpload">
 			<v-card>
@@ -115,18 +158,18 @@ import { computed, ref, toRefs, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import DrawerItem from './app/views/drawer-item.vue';
 import DrawerCollection from './app/views/drawer-collection.vue';
-import { GridLayout, GridItem } from 'vue3-drr-grid-layout'
-import 'vue3-drr-grid-layout/dist/style.css'
-import { adjustFieldsForDisplays } from './app/utils/adjust-fields-for-displays';
-import { get, clamp, debounce } from 'lodash';
-import { useStores } from '@directus/extensions-sdk';
+import { getAssetUrl } from './app/utils/get-asset-url';
 import { addTokenToURL } from './app/utils/add-token-to-url';
 import { getRootPath } from './app/utils/get-root-path';
+import { adjustFieldsForDisplays } from './app/utils/adjust-fields-for-displays';
+import { get, clamp, isEmpty, isNil, set, debounce, find } from 'lodash';
+import { useStores } from '@directus/extensions-sdk';
 import { getFieldsFromTemplate } from '@directus/shared/utils';
-import { useEventListener } from './app/composables/use-event-listener';
 import { Filter } from '@directus/shared/types';
 import VSkeletonGalleryLoader from './app/components/v-skeleton-gallery-loader.vue';
-import { func } from 'joi';
+import { GridLayout, GridItem } from 'vue3-drr-grid-layout'
+import 'vue3-drr-grid-layout/dist/style.css'
+
 
 const props = withDefaults(
 	defineProps<{
@@ -192,7 +235,7 @@ const templateWithDefaults = computed(() => {
 
 const fields = computed(() =>
 	adjustFieldsForDisplays(
-		getFieldsFromTemplate(templateWithDefaults.value),
+		[...getFieldsFromTemplate(templateWithDefaults.value), `${relationInfo.value?.relation.field}.filename_download`],
 		relationInfo.value?.junctionCollection.collection ?? ''
 	)
 );
@@ -205,9 +248,18 @@ const query = computed<RelationQueryMultiple>(() => ({
 	page: page.value,
 }));
 
-const { create, update, remove, select, displayItems, totalItemCount, loading, selected, isItemSelected, localDelete } =
-	useRelationMultiple(value, query, relationInfo, primaryKey);
-
+const {
+	update,
+	remove,
+	select,
+	displayItems,
+	totalItemCount,
+	loading,
+	selected,
+	isItemSelected,
+	localDelete,
+	getItemEdits,
+} = useRelationMultiple(value, query, relationInfo, primaryKey);
 
 const pageCount = computed(() => Math.ceil(totalItemCount.value / limit.value));
 
@@ -231,13 +283,13 @@ type GridLayout = {
 };
 let layout: Array<GridLayout> = [];
 
-watch([displayItems, totalItemCount], () => {
+watch([displayItems], () => {
 	if (displayItems.value.length) {
-		console.log(displayItems.value, totalItemCount.value);
-		layout = displayItems.value.map((item, index) => {
-			const x = index * 2 % 12;
-			const y = Math.floor(index / 12);
-			// const y = (item.$type == "created" && displayItems.value.length > 1) ? displayItems.value.length + 12 : Math.floor(index / 12);
+		let layoutWidth = 0;
+
+		displayItems.value.forEach((item, index) => {
+			const x = (index * 2 + (layoutWidth - layout.length * 2)) % 12;
+			const y = Math.floor(layoutWidth / 12) * 2;
 			const layoutItemTemplate = {
 				x: x,
 				y: y,
@@ -247,9 +299,14 @@ watch([displayItems, totalItemCount], () => {
 			};
 
 			const layoutData: GridLayout = item.layout || layoutItemTemplate;
-			return layoutData;
+			layoutWidth += layoutData.w;
+
+			let foundObject = find(layout, function(e) {
+				return e.i === index;
+			});
+			!foundObject && layout.push(layoutData);
 		});
-		console.log({ layout });
+		console.log({ layout, layoutWidth});
 	}
 });
 
@@ -262,7 +319,7 @@ function updateLayout(data: Array<GridLayout>) {
 }
 
 const updateGrid = debounce((data) => {
-	// updateLayout(data);
+	updateLayout(data);
 }, 1000);
 
 const selectedPrimaryKeys = computed(() => {
@@ -283,9 +340,10 @@ function editItem(item: DisplayItem) {
 	if (!relationInfo.value) return;
 
 	const relationPkField = relationInfo.value.relatedPrimaryKeyField.field;
+	const junctionField = relationInfo.value.junctionField.field;
 	const junctionPkField = relationInfo.value.junctionPrimaryKeyField.field;
 
-	editsAtStart.value = item;
+	editsAtStart.value = getItemEdits(item);
 
 	editModalActive.value = true;
 
@@ -294,12 +352,14 @@ function editItem(item: DisplayItem) {
 		relatedPrimaryKey.value = null;
 	} else {
 		currentlyEditing.value = get(item, [junctionPkField], null);
-		relatedPrimaryKey.value = get(item, [junctionPkField, relationPkField], null);
+		relatedPrimaryKey.value = get(item, [junctionField, relationPkField], null);
 	}
 }
 
-function cancelEdit() {
-	editModalActive.value = false;
+function stageEdits(item: Record<string, any>) {
+	if (isEmpty(item)) return;
+
+	update(item);
 }
 
 function deleteItem(item: DisplayItem) {
@@ -318,26 +378,39 @@ const showUpload = ref(false);
 function onUpload(files: Record<string, any>[]) {
 	showUpload.value = false;
 	if (files.length === 0 || !relationInfo.value) return;
-	const junctionField = relationInfo.value.junctionField.field;
-	const reverseJunctionField = relationInfo.value.reverseJunctionField.field;
-	const relatedPKField = relationInfo.value.relatedPrimaryKeyField.field;
 
-	const filesAsJunctionRows = files.map((file) => {
-		return {
-			[reverseJunctionField]: primaryKey.value,
-			[junctionField]: {
-				[relatedPKField]: file.id,
-			},
-		};
-	});
+	const fileIds = files.map((file) => file.id);
 
-	create(...filesAsJunctionRows);
+	select(fileIds);
 }
+
+function onSelect(selected: string[]) {
+	select(selected.filter((id) => selectedPrimaryKeys.value.includes(id) === false));
+}
+
+const downloadName = computed(() => {
+	if (relatedPrimaryKey.value === null || relationInfo.value?.relatedCollection.collection !== 'directus_files') return;
+	const junctionField = relationInfo.value.junctionField.field;
+	const relationPkField = relationInfo.value.relatedPrimaryKeyField.field;
+
+	return displayItems.value.find((item) => get(item, [junctionField, relationPkField]))?.directus_files_id
+		?.filename_download;
+});
 
 const downloadUrl = computed(() => {
 	if (relatedPrimaryKey.value === null || relationInfo.value?.relatedCollection.collection !== 'directus_files') return;
-	return addTokenToURL(getRootPath() + `assets/${relatedPrimaryKey.value}`);
+	return getAssetUrl(String(relatedPrimaryKey.value), true);
 });
+
+function getFilename(junctionRow: Record<string, any>) {
+	const junctionField = relationInfo.value?.junctionField.field;
+	if (!junctionField) return;
+
+	const key = junctionRow[junctionField]?.id ?? junctionRow[junctionField] ?? null;
+	if (!key) return null;
+
+	return key;
+}
 
 function getUrl(junctionRow: Record<string, any>, addDownload?: boolean) {
 	const junctionField = relationInfo.value?.junctionField.field;
@@ -357,6 +430,14 @@ const customFilter = computed(() => {
 	const filter: Filter = {
 		_and: [],
 	};
+
+	if (props.folder) {
+		filter._and.push({
+			folder: {
+				id: { _eq: props.folder },
+			},
+		});
+	}
 
 	if (!relationInfo.value) return filter;
 
